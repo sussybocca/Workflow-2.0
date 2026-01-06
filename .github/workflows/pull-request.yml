@@ -1,0 +1,51 @@
+name: Anything PR Automation
+
+# Trigger on any pull request
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  run-pr-workflow:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1️⃣ Checkout the PR code
+      - name: Checkout PR
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      # 2️⃣ Set up environment (optional)
+      - name: Set up Node.js (example)
+        uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+
+      # 3️⃣ Example: Run a script / CI / generate files
+      - name: Run automation script
+        run: |
+          echo "Running automated tasks on PR #${{ github.event.pull_request.number }}"
+          # Example: create a generated file in the repo
+          mkdir -p generated
+          echo "PR #${{ github.event.pull_request.number }} processed on $(date)" > generated/PR-${{ github.event.pull_request.number }}.txt
+
+      # 4️⃣ Optional: Commit back to PR branch using a bot
+      - name: Commit generated files
+        if: github.actor == 'YOUR_BOT_ACCOUNT'  # Only commit if using a bot account
+        run: |
+          git config user.name "PR Bot"
+          git config user.email "bot@example.com"
+          git add generated/
+          git commit -m "Add generated files for PR #${{ github.event.pull_request.number }}"
+          git push
+
+      # 5️⃣ Optional: Comment on PR
+      - name: Comment on PR
+        uses: peter-evans/create-or-update-comment@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body: |
+            ✅ PR #${{ github.event.pull_request.number }} has been processed by the workflow.
