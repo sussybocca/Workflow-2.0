@@ -1,0 +1,94 @@
+name: Workflow 2.0 - Dynamic Repo Builder
+
+on:
+  workflow_dispatch:        # Manual trigger
+    inputs:
+      filename:
+        description: "File path to create (e.g., src/main.py)"
+        required: true
+      content:
+        description: "Content of the file (optional)"
+        required: false
+
+  issue_comment:            # Trigger on new comments
+    types: [created]
+
+jobs:
+  dynamic-builder:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Determine file and content
+        id: vars
+        run: |
+          # Default values
+          FILENAME=""
+          CONTENT="# Default content"
+
+          # 1️⃣ Check if triggered by workflow_dispatch
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            FILENAME="${{ github.event.inputs.filename }}"
+            CONTENT="${{ github.event.inputs.content }}"
+          fi
+
+          # 2️⃣ Check if triggered by issue_comment
+          if [ "${{ github.event_name }}" == "issue_comment" ]; then
+            BODY="${{ github.event.comment.body }}"
+            # Parse comment starting with "!add file"
+            if [[ $BODY == "!add file "* ]]; then
+              FILENAME=$(echo "$BODY" | head -n1 | sed 's/!add file //')
+              CONTENT=$(echo "$BODY" | tail -n +2)
+              # If no extra content, use default
+              if [ -z "$CONTENT" ]; then
+                CONTENT="# Default content"
+              fi
+            fi
+          fi
+
+          # Export for next steps
+          echo "FILENAME=$FILENAME" >> $GITHUB_ENV
+          echo "CONTENT<<EOF" >> $GITHUB_ENV
+          echo "$CONTENT" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+
+      - name: Safety check
+        run: |
+          if [ -z "$FILENAME" ]; then
+            echo "❌ No filename provided. Exiting."
+            exit 1
+          fi
+          if [[ "$FILENAME" == /* ]] || [[ "$FILENAME" == *".."* ]]; then
+            echo "❌ Invalid file path. Exiting."
+            exit 1
+          fi
+
+      - name: Create file
+        run: |
+          mkdir -p $(dirname "$FILENAME")
+          echo "$CONTENT" > "$FILENAME"
+          echo "✅ Created file: $FILENAME"
+
+      - name: Commit and push
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "GitHub Actions Bot"
+          git add "$FILENAME"
+          git commit -m "Add $FILENAME dynamically"
+          git push
+
+      - name: Respond to issue comment (if any)
+        if: github.event_name == 'issue_comment'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          BODY="${{ github.event.comment.body }}"
+          if [[ $BODY == "!add file "* ]]; then
+            curl -s -X POST \
+              -H "Authorization: token $GITHUB_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              https://api.github.com/repos/${{ github.repository }}/issues/$ISSUE_NUMBER/comments \
+              -d "{\"body\": \"✅ File '$FILENAME' created dynamically!\"}"
